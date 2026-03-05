@@ -1,12 +1,7 @@
-name: Build APK
+name: Build APK (Unsigned)
 
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Release Tag'
-        required: false
-        type: string
   push:
     branches:
       - master
@@ -32,8 +27,6 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       with:
-        log-accepted-android-sdk-licenses: false
-        cmdline-tools-version: '11076708'
         packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
 
     - name: Install NDK
@@ -43,10 +36,9 @@ jobs:
 
     - name: Build libhevtun
       run: |
-        # 赋予执行权限并编译
         chmod +x compile-hevtun.sh
         ./compile-hevtun.sh
-        # 确保 libs 目录存在并拷贝到 app 模块
+        # 确保将编译出的库放入 app 的 libs 目录
         mkdir -p V2rayNG/app/libs
         cp -r libs/* V2rayNG/app/libs/ || true
 
@@ -58,46 +50,24 @@ jobs:
         fileName: 'libv2ray.aar'
         out-file-path: 'V2rayNG/app/libs/'
 
-    - name: Decode Keystore
-      uses: timheuer/base64-to-file@v1.2
-      id: android_keystore
-      with:
-        fileName: "android_keystore.jks"
-        encodedString: ${{ secrets.APP_KEYSTORE_BASE64 }}
-
-    - name: Build APK with Gradle
+    - name: Build Unsigned APK
       run: |
         cd V2rayNG
-        # 写入必要的 SDK 和 NDK 路径
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         echo "ndk.dir=$NDK_HOME" >> local.properties
         
         chmod +x gradlew
-        ./gradlew assembleRelease \
-          -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} \
-          -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} \
-          -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} \
-          -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }} \
-          --stacktrace
+        # 执行 assembleRelease，但不传入签名信息
+        ./gradlew assembleRelease --stacktrace
 
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v4
       with:
-        name: arm64-v8a
+        name: v2rayNG-arm64-v8a-unsigned
         path: V2rayNG/app/build/outputs/apk/*/release/*arm64-v8a*.apk
 
     - name: Upload armeabi-v7a APK
       uses: actions/upload-artifact@v4
       with:
-        name: armeabi-v7a
+        name: v2rayNG-armeabi-v7a-unsigned
         path: V2rayNG/app/build/outputs/apk/*/release/*armeabi-v7a*.apk
-
-    - name: Upload to release
-      if: github.event.inputs.release_tag != ''
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: V2rayNG/app/build/outputs/apk/*/release/*.apk
-        tag: ${{ github.event.inputs.release_tag }}
-        file_glob: true
-        overwrite: true
